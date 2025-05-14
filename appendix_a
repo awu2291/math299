@@ -1,7 +1,10 @@
 addpath '~/Documents/MATLAB/1.1-master/miditoolbox/'
 savepath
 
-%Read Midi file of Claire de Lune
+
+rng(123456)
+
+%Read midi files
 
 [demo_collection,filenames] = dir2coll;
 clair_de_lune = demo_collection{2};
@@ -13,9 +16,11 @@ deux_arabesques(:,4) = deux_arabesques(:,4) - 3;
 
 %Data Labels are: ONSET(BEATS)  DURATION(BEATS)  MIDI_CHANNEL  MIDI_PITCH  VELOCITY ONSET(SEC)  DURATION(SEC)
 
+%create combined note matrix
 training_data = [clair_de_lune; deux_arabesques];
 
 
+%possible beat durations
 beat_vector = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 
 %want the indices such that we can map each beat in the training data to the closest beat in the beat_vector
@@ -27,6 +32,7 @@ adj_beats = index_beats;
 
 training_data(:,2); %checking beats
 
+%initialize beat_matrix
 beat_matrix = zeros(length(beat_vector), length(beat_vector));
 
 for k = 1:length(training_data)-1
@@ -35,6 +41,7 @@ for k = 1:length(training_data)-1
     beat_matrix(i,j) = beat_matrix(i,j) + 1;
 end
 
+%display beat matrix
 beat_matrix;
 
 
@@ -45,15 +52,13 @@ beat_row_sums = sum(beat_matrix,2);
 % Prevent division by zero
 beat_row_sums(beat_row_sums == 0) = 1;
 
-
-% Normalize transition matrix
+% Normalize beata transition matrix
 normalized_beat_matrix = beat_matrix ./ beat_row_sums;
 
-
-% Check if the rows sum to 1
-disp(sum(normalized_beat_matrix, 2)); % Should be = to 1 for nonzero rows
-
+%display normalized beat matrix
 normalized_beat_matrix;
+
+%cumulative-summed beat matrix
 normalized_beat_matrix_summed = cumsum(normalized_beat_matrix,2);
 
 
@@ -67,10 +72,10 @@ training_data;
 %mod = 0 - C, 1 - C#, 2 - D, 3 - D#, 4 - E, 5 - F, 6 - F#, 7 - G, 8-G#,
 %9-A, 10-A#, 11-B, 12-B#
 
-%initialize transition matrix
+%Initialize transition matrix
 trans_matrix = zeros(12,12);
 
-%constructing transition matrix
+%Constructing transition matrix
 for k = 1:length(training_data)-1
     i = mod(training_data(k,4),12) + 1;
     j = mod(training_data(k+1,4),12) + 1;
@@ -79,30 +84,27 @@ end
 
 
 
-%% 
-
 % Find row sums
 row_sums = sum(trans_matrix,2);
 
 % Prevent division by zero
 row_sums(row_sums == 0) = 1;
 
-% Normalize transition matrix
+% Normalize pitch transition matrix
 normalized_trans_matrix = trans_matrix ./ row_sums;
 
-% Check if the rows sum to 1
-disp(sum(normalized_trans_matrix, 2)); % Should be = to 1 for nonzero rows
-
-
-%display normalized pitch transition matrix
+%Display normalized pitch transition matrix
 normalized_trans_matrix;
+
+normalized_trans_matrix_summed = cumsum(normalized_trans_matrix,2);
+
 
 
         
 
 
 %%
-% PLOT PROPORTION OF TIME TRAINING DATA SPENDS IN EACH PITCH CLASS
+% Plot proportion of time training data spends in each pitch class
 pitchprop = pcdist1(training_data);
 
 figure(1)
@@ -113,9 +115,10 @@ end
 
 %%
 
-%SOLVING FOR STATIONARY PROBABILITIES OF PITCHES
+%Verifying existence of unique stationary distribution for pitches and
+%beats
 
-%Check that transition matrices are irreducible
+%Considtion 1: check that pitch and beat transition matrices are irreducible
 mc = dtmc(normalized_trans_matrix);
 tf = isreducible(mc);
 
@@ -125,11 +128,14 @@ tf = isreducible(mc2);
 %Check that transition matrices are aperiodic by checking for non-zero
 %diagonal elements
 diag(normalized_trans_matrix);
-diag(normalized_beat_matrix_summed);
+diag(normalized_beat_matrix);
 
 
+%Linear System
 % pi = [pi_1 pi_2 pi_3 ... pi_12] = [pi_1 pi_2 pi_3 ... pi_12]*P = pi*P (1)
 % pi_1 + pi_2 + ... + pi_12 = 1 (2)
+
+%Solve for stationary probabilities of pitches
 
 A=(eye(size(normalized_trans_matrix))-normalized_trans_matrix)';
 A_with_constraint_row = [A; 1 1 1 1 1 1 1 1 1 1 1 1];
@@ -143,9 +149,8 @@ disp(stationary_pi)
 stationary_pi_summed = cumsum(stationary_pi); %take cumulative sum of pitch stationary distribution to use as an initial probability vector
 
 
+%Solve for stationary probabilities of beats
 
-
-%SOLVING FOR STATINOARY PROBABILITIES OF BEATS
 A2=(eye(size(normalized_beat_matrix))-normalized_beat_matrix)';
 A2_with_constraint_row = [A2; 1 1 1 1 1 1 1 ];
 b2_with_constraint_row = [zeros(7,1); 1];
@@ -159,41 +164,38 @@ beats_stationary_pi_summed = cumsum(beats_stationary_pi); %take cumulative sum o
 
 
 
-
 %beat vector
-beat_possibilities = [0.25, 0.5, 1, 1.5, 2, 3, 4]; %sixteenth, eigth, quarter, dotted quarter, half, dotted half, whole note
+beat_vector = [0.25, 0.5, 1, 1.5, 2, 3, 4]; %sixteenth, eigth, quarter, dotted quarter, half, dotted half, whole note
 
+%Generate 3 compositions
+for p = 1:3 
 
-for p = 1:3 %generates 3 compositions
-
-    %Generating starting beat
+    %Generate starting beat
     beats = 0;
     
     beat_diff = beats_stationary_pi_summed - rand(1);
     beat1 = beat_diff(find(beat_diff >= 0,1));
     pitch_beat = find(beat_diff == beat1,1);
     
-    beat_vec = [beat_possibilities(pitch_beat)]; %stores composed beat vector
+    beat_vec = [beat_vector(pitch_beat)]; %stores composed beat vector
     
     
     %Find starting pitch using stationary probabilities
     
   
     next_pitch = find(stationary_pi_summed >= rand(1), 1);
-    composition = next_pitch;  
-    normalized_trans_matrix_summed = cumsum(normalized_trans_matrix,2);
-    
+    composition = next_pitch;      
     
     while beats < 32
         unifs = rand(2,1);
-        %find next pitch
+        %Find next pitch
 
         next_pitch = find(normalized_trans_matrix_summed(next_pitch,:) >= unifs(1), 1);
         composition = [composition next_pitch];
     
-        %assign next pitch time value in beat length
+        %Assign next pitch time value in beat length
         pitch_beat = find(normalized_beat_matrix_summed(pitch_beat,:) >= unifs(2),1);
-        next_beat = beat_possibilities(pitch_beat);
+        next_beat = beat_vector(pitch_beat);
         beats = beats + next_beat;
         beat_vec = [beat_vec next_beat];
     end
@@ -202,28 +204,29 @@ for p = 1:3 %generates 3 compositions
     composition;
     beat_vec;
     
-    %Need to transpose composition into mid-pitch range so that it is a playable file. The following will transpose pitch 1 (C1) to middle C (C4), which has a pitch number of 60. 
+    %Transpose composition into mid-pitch range so that it is a playable file. The following will transpose pitch 1 to middle C (C4), which has a pitch number of 60. 
     composition_final = composition + 59;
     
     
     
-    % %GENERATE MIDI FILE 
+    %Generate midi file
     midi_array = cell(size(composition_final));
     
+    %Tempo scaling factor; assumes a standard BPM of 120 (half second per
+    %beat)
     tempo_scaling = 0.5;
-    %assume a BPM = 120; half second per beat
 
+    %initial note matrix
     nmat = zeros(length(composition_final),7);
 
-    % ONSET(BEATS)  DURATION(BEATS)  MIDI_CHANNEL  MIDI_PITCH  VELOCITY ONSET(SEC)  DURATION(SEC)
-    nmat(:,1) = [0, cumsum(beat_vec(1:end-1))]';  %Onset(beats)
-    nmat(:,2) = beat_vec; %duration(beats)
-    nmat(:,3) = 1; %MIDI Channel 1
-    nmat(:,4) = composition_final; %pitches
-    nmat(:,5) = 60;  % velocity 
-    nmat(:,6) = nmat(:,1)*tempo_scaling;  %Onset(Sec)
+    nmat(:,1) = [0, cumsum(beat_vec(1:end-1))]';        %Onset(beats)
+    nmat(:,2) = beat_vec;                               %Duration(beats)
+    nmat(:,3) = 1;                                      %MIDI Channel 1
+    nmat(:,4) = composition_final;                      %Pitches
+    nmat(:,5) = 60;                                     %Velocity 
+    nmat(:,6) = nmat(:,1)*tempo_scaling;                %Onset(Sec)
     
-    %duration(sec)
+    %Duration(sec)
     for i = 1:length(composition)
         nmat(i,7) = beat_vec(i)*tempo_scaling;  
     end
@@ -235,24 +238,20 @@ for p = 1:3 %generates 3 compositions
 
 end
 
-%reads midi files of MATLAB generated compositions
+%Read midi files of MATLAB generated compositions
 midi_data = readmidi('/Users/abbeywu/Documents/MATLAB/MIDI_Files/First Order Compositions/composition_first_order_1.mid');
 midi_data_2 = readmidi('/Users/abbeywu/Documents/MATLAB/MIDI_Files/First Order Compositions/composition_first_order_2.mid');
 midi_data_3 = readmidi('/Users/abbeywu/Documents/MATLAB/MIDI_Files/First Order Compositions/composition_first_order_3.mid');
 
-
+%Combine data from MATLAB composed files
 training = [midi_data; midi_data_2; midi_data_3];
+
+%Plot proportion of time the computer generated compositions spend in each pitch class
 pitchprop = pcdist1(training);
 
-%plots proportion of time the computer generated compositions spend in each pitch class
 
 figure(2)
 plotdist(pitchprop) 
 for i = 1:12
     text(i, pitchprop(i) + 0.001, sprintf('%.2f', pitchprop(i)),'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'FontSize', 20);
 end
-
-
-
-
-
